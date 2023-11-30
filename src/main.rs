@@ -1,3 +1,6 @@
+use collision_detection_gpu::run;
+
 fn main() {
-    println!("Hello, world!");
+    run();
 }
+ 
