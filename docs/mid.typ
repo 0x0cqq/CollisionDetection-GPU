@@ -1,11 +1,34 @@
 #set text(
-  10pt,
+  11pt,
   font: "Noto Serif CJK SC"
 )
 
+#let f-par = {
+  v(-1em)
+  box()
+}
+
+#set par(
+  first-line-indent: 2em, justify: true
+)
+
+
+#set page(
+  footer: [
+    #align(center,
+      counter(page).display("第 1 页 / 共 1 页", both: true)
+    )
+  ]
+)
+
+#show heading: it => {
+  it
+  f-par
+}
+
 #show heading.where(level: 1): it => align(center, it)
 
-= 中期文档
+= 计算机动画 碰撞检测作业 中期文档
 
 #align(center,
   [软件03 陈启乾 2020012385]
@@ -26,13 +49,53 @@
 
 === 粗检测阶段
 
+因为题目中要求的是大量小球和物体，可以假设物体大小相差不会很悬殊，而且大多数物体都是比较规则的几何形状。
+
+因此，我们打算采用基于均匀网格技术的粗检测方法。假设所有的物体中，AABB 包围盒最大的大小为 $d$，则我们在整个空间构造宽度为 $2d$ 的网格，每个网格的大小为 $d$。这样的话，我们可以将所有的物体放入网格中，每个网格中的物体数量不会太多。
+
+因为物体的大小不会超过网格大小，所以一个物体最多只会和其所在的网格为中心的 $3 times 3 times 3$ 个网格中的物体发生碰撞，在这些之外的物体就不会在碰撞检测的考虑范围内。
+
+假设物体均匀分布，那么我们就只需要进行 $O(n)$ 次碰撞检测。
+
 === 细检测阶段
+
+在细检测阶段中，我们对粗检测阶段中判断对进行精确的碰撞检测，并用 GPU 对不同物体之间的碰撞，进行并行化加速。
+
+我们假设在场景中，只会出现两类物体：球体和正方体。我们对球体考虑特殊处理，对于除了球体之外的三维物体，我们用三角面片来近似表示。
+
+因此，我们只需要考虑如下几种情况：
+
++ 球体和球体之间的碰撞
++ 球体和三角面片之间的碰撞
++ 三角面片和三角面片之间的碰撞
+
+对这些碰撞，都有非常成熟的基于距离的碰撞检测算法，可以在 $O(1)$ 的时间内完成。
 
 == 说明 GPU 实现的思路设计
 
-本项目打算采用基于 WebGPU 技术，使用 Rust 语言的 wgpu 库实现跨平台的 GPU 程序。
+本项目采用 WebGPU 技术，使用 Rust 语言的 wgpu 库实现跨平台的 GPU 程序。基于以上的快速碰撞检测算法，我们设计一个并行、对 GPU 架构友好的实现。
+
+在粗检测阶段，我们希望维护一个索引数组，在索引数组中，我们把所有物体的索引按照其所在的网格进行排序；除此之外，我们还希望维护每一个网格在索引数组中的起始位置和终止位置。
+
+具体来说，假设共有 $N$ 个物体，$m$ 个网格。
+
+我们需要维护长度为 $N$ 的索引数组 $"index"[i]$。我们希望 $"index"[i] eq.not "index"[j],forall i eq.not j$ 而且 $forall i, 0 <= "index"[i] < N$。
+
+我们还需要维护两个数组 $"start"[i]$ 和 $"end"[i]$，其中 $0 <= i < m$，表示第 $i$ 个网格中的物体在物体数组中的起始位置和终止位置，并且应该满足 $"end"[i-1] = "start"[i]$ 且 $"end"[m-1] = N$，这个时候满足 $forall i, forall "start"[i] <= j < "end"[i], "第" j "个物体在第" i "个网格中"$。
+
+在每次更新的时候，实现步骤如下：
+
++ 以 Thread Group 为计算的单元，对网格并行处理。对每个网格，我们会并行计算每个网格中的物体，经过位置的更新后所在的网格的编号。
+
++ 接下来我们需要计算每个网格中的物体的个数，构建 start 和 end 数组。我们维护全局的 size ，然后利用 atomic 算子去计算全局的 size。
+
++ 接下来我们把对应的索引填入到索引数组的对应的位置。这个我们通过分块计算前缀和来计算得到每个位置所在。
+
+在细检测阶段，我们仍然以 Thread Group 为计算的单元，对网格并行处理。对每个网格中的所有元素，我们遍历其周围网格的所有元素，在 GPU 上进行具体的碰撞检测算法。
 
 
+
+#pagebreak()
 
 
 == 参考文献
@@ -40,3 +103,4 @@
 + R. Weller, “A Brief Overview of Collision Detection,” in New Geometric Data Structures for Collision Detection and Haptics, R. Weller, Ed., in Springer Series on Touch and Haptic Systems. , Heidelberg: Springer International Publishing, 2013, pp. 9–46. doi: 10.1007/978-3-319-01020-5_2.
 + 用 39 行 Taichi 代码加速 GPU 粒子碰撞检测: https://zhuanlan.zhihu.com/p/563182093
 + 空间划分算法优化碰撞检测研究: https://blog.csdn.net/yhn19951008/article/details/119899092
++ wgpu - Rust: https://docs.rs/wgpu/latest/wgpu/
