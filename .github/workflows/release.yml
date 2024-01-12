@@ -1,0 +1,22 @@
+name: Cargo Release On Windows
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Build
+        run: cargo build --release
+      - name: Test
+        run: cargo test --verbose
+      - name: Release on Windows
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/release/my-collision-detect.exe
+        
