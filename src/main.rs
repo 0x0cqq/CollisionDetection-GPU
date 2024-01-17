@@ -1,6 +1,8 @@
 use std::iter;
 
 use app_surface::{AppSurface, SurfaceFrame};
+use compute::do_compute;
+use rand::Rng;
 use winit::{event::*, window::WindowId};
 
 mod framework;
@@ -136,8 +138,6 @@ impl State {
             )
         };
 
-
-
         // 统一的用来画的模型（目前是一个正方体）
         let obj_model = resources::load_model(
             "sphere.obj",
@@ -148,6 +148,57 @@ impl State {
         .await
         .unwrap();
 
+
+        // generate 10 random points in [0, 1] * 3
+        let mut rng = rand::thread_rng();
+        let points = (0..100000)
+            .map(|_| {
+                let x = rng.gen_range(0.0..1.0) as f32;
+                let y = rng.gen_range(0.0..1.0) as f32;
+                let z = rng.gen_range(0.0..1.0) as f32;
+                glam::Vec3 { x, y, z}
+            })
+            .collect::<Vec<_>>();
+
+
+                    // timing
+        let start = std::time::Instant::now();
+
+        let mut ans = 0;
+        let len = points.len();
+
+        for i in 0..len {
+            for j in 0 .. len {
+                if i == j {
+                    continue;
+                }
+                let point_i = points[i];
+                let point_j = points[j];
+                let distance = (point_i - point_j).length();
+                if distance < 0.3 {
+                    ans += 1;
+                }
+            }
+        }
+
+        println!("ans: {}", ans);
+
+        let end = std::time::Instant::now();
+
+        println!("Compute time (CPU): {:?}", end - start);
+
+        let start1 = std::time::Instant::now();
+        
+        do_compute(&app, &points);
+
+        let end1 = std::time::Instant::now();
+
+        println!("Compute time (GPU): {:?}", end1 - start1);
+
+
+
+        
+        
         Self {
             app,
             render_pipeline,
@@ -182,7 +233,9 @@ impl State {
     /// new size in pixels.
     fn resize(&mut self, new_size: &winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
-            self.camera_state.projection.resize(new_size.width, new_size.height);
+            self.camera_state
+                .projection
+                .resize(new_size.width, new_size.height);
             self.app.resize_surface();
             self.depth_texture = texture::Texture::create_depth_texture(
                 &self.app.device,
@@ -223,7 +276,6 @@ impl State {
         self.light_state.update(&self.app);
         // Update the instances
         self.instance_state.update(&self.app);
-
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

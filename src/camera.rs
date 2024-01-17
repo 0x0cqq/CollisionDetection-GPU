@@ -7,6 +7,13 @@ use winit::event::{*};
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
+/// “Camera”结构代表 3D 空间中的相机，具有位置、偏航和俯仰。
+/// 
+/// Properties:
+/// 
+/// * `position`: `position` 属性是一个 `glam::Vec3` 表示相机在 3D 空间中的位置。
+/// * `yaw`: “yaw”属性表示围绕相机垂直轴的旋转。它决定相机的左右移动。
+/// * `pitch`: `pitch` 属性表示相机的垂直旋转。它决定相机向上或向下倾斜的角度。
 #[derive(Debug)]
 pub struct Camera {
     pub position: glam::Vec3,
@@ -23,6 +30,7 @@ impl Camera {
         }
     }
 
+/// `calc_matrix` 函数根据位置、俯仰和偏航值计算 4x4 矩阵。
     pub fn calc_matrix(&self) -> glam::Mat4 {
         let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
         let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
@@ -35,6 +43,14 @@ impl Camera {
     }
 }
 
+/// “Projection”结构表示 Rust 中的投影矩阵，具有纵横比、视野、近剪裁平面和远剪裁平面的属性。
+/// 
+/// Properties:
+/// 
+/// * `aspect`: 投影的纵横比。它是投影的宽度与投影的高度的比率。
+/// * `fovy`: fovy 属性表示投影 y 方向（垂直）的视角。它决定了从相机的角度可以看到多少场景。
+/// * `znear`: `znear` 属性表示到投影的近裁剪平面的距离。它决定了物体在开始被剪裁或从视图中消失之前与相机的距离有多近。
+/// * `zfar`: `zfar` 属性表示对象将不再被渲染到相机的距离。任何超出此距离的对象都将被剪裁并且在场景中不可见。
 pub struct Projection {
     aspect: f32,
     fovy: f32,

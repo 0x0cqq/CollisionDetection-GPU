@@ -1,13 +1,13 @@
 use std::f32::consts;
 
 use app_surface::AppSurface;
-use wgpu::{util::DeviceExt, BindGroupLayout};
+use wgpu::util::DeviceExt;
 
-use crate::{utils, texture, model::{self, Vertex}};
+
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct LightUniform {
+pub struct LightUniform {
     position: [f32; 3],
     // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
     _padding: u32,
