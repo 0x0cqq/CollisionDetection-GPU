@@ -3,6 +3,7 @@ use std::iter;
 use app_surface::{AppSurface, SurfaceFrame};
 use compute::do_compute;
 use rand::Rng;
+use wgpu::include_wgsl;
 use winit::{event::*, window::WindowId};
 
 mod framework;
@@ -31,6 +32,12 @@ struct State {
     light_state: light::LightState,
     // Instances related
     instance_state: instance::InstanceState,
+    // compute node
+    compute_node: compute::ComputeTestNode,
+    // compute instances
+    compute_state: compute::ComputeState,
+    // fps related, last time we update fps
+    last_fps_update: std::time::Instant,
 }
 
 impl State {
@@ -39,8 +46,6 @@ impl State {
         let camera_state = camera::CameraState::new(&app);
         // Light
         let light_state = light::LightState::new(&app);
-        // Instances
-        let instance_state = instance::InstanceState::new(&app);
 
         let texture_bind_group_layout =
             app.device
@@ -148,66 +153,55 @@ impl State {
         .await
         .unwrap();
 
+        let boundary = 5.0;
+        let points_cnt = 10;
 
-        // generate 10 random points in [0, 1] * 3
-        let mut rng = rand::thread_rng();
-        let points = (0..100000)
-            .map(|_| {
-                let x = rng.gen_range(0.0..1.0) as f32;
-                let y = rng.gen_range(0.0..1.0) as f32;
-                let z = rng.gen_range(0.0..1.0) as f32;
-                glam::Vec3 { x, y, z}
+        let mut compute_state = compute::ComputeState {
+            instances: Vec::new(),
+        };
+
+        let compute_shader = app
+            .device
+            .create_shader_module(include_wgsl!("../shaders/compute.wgsl"));
+        let compute_node = compute::ComputeTestNode::new(&app, compute_shader, points_cnt as u32);
+
+        // set boundary
+        compute_node.set_boundary(&app, boundary);
+
+        // set points
+
+        for i in 0..points_cnt {
+            let x = rand::rngs::ThreadRng::default().gen_range(-boundary..boundary);
+            let y = rand::rngs::ThreadRng::default().gen_range(-boundary..boundary);
+            let z = rand::rngs::ThreadRng::default().gen_range(-boundary..boundary);
+
+            let vx = rand::rngs::ThreadRng::default().gen_range(-1.0..1.0);
+            let vy = rand::rngs::ThreadRng::default().gen_range(-1.0..1.0);
+            let vz = rand::rngs::ThreadRng::default().gen_range(-1.0..1.0);
+
+            compute_state.instances.push(compute::ComputeInstance {
+                id: i as u32,
+                position: glam::Vec3::new(x, y, z),
+                radius: 1.0,
+                velocity: glam::Vec3::new(vx, vy, vz),
             })
-            .collect::<Vec<_>>();
-
-
-                    // timing
-        let start = std::time::Instant::now();
-
-        let mut ans = 0;
-        let len = points.len();
-
-        for i in 0..len {
-            for j in 0 .. len {
-                if i == j {
-                    continue;
-                }
-                let point_i = points[i];
-                let point_j = points[j];
-                let distance = (point_i - point_j).length();
-                if distance < 0.3 {
-                    ans += 1;
-                }
-            }
         }
 
-        println!("ans: {}", ans);
+        // instance_state for rendering
+        let instance_state = instance::InstanceState::new(&app, &compute_state.instances);
 
-        let end = std::time::Instant::now();
-
-        println!("Compute time (CPU): {:?}", end - start);
-
-        let start1 = std::time::Instant::now();
-        
-        do_compute(&app, &points);
-
-        let end1 = std::time::Instant::now();
-
-        println!("Compute time (GPU): {:?}", end1 - start1);
-
-
-
-        
-        
         Self {
             app,
             render_pipeline,
             light_render_pipeline,
+            compute_node,
             obj_model,
             camera_state,
             light_state,
+            compute_state,
             instance_state,
             depth_texture,
+            last_fps_update: std::time::Instant::now(),
         }
     }
 
@@ -270,12 +264,42 @@ impl State {
     /// with nanosecond precision. In this code snippet, `dt` is used to update the camera and light based
     /// on the controller.
     fn update(&mut self, dt: std::time::Duration) {
+        // Update the FPS to the title
+        let now = std::time::Instant::now();
+        if now - self.last_fps_update >= std::time::Duration::from_secs_f32(0.1) {
+            self.app
+                .view
+                .set_title(&format!("FPS: {:.2}", 1.0 / dt.as_secs_f32()));
+
+            self.last_fps_update = now;
+        }
+
         // Update the camera based on the controller
         self.camera_state.update(&self.app, dt);
         // Update the light position
         self.light_state.update(&self.app);
         // Update the instances
-        self.instance_state.update(&self.app);
+        self.compute_node.set_time_step(&self.app, dt.as_secs_f32());
+
+        // Do collision detection and update back the compute_state instaces
+
+        self.compute_node
+            .write_instances_buffer(&self.app, &self.compute_state.instances);
+
+        do_compute(&self.app, &self.compute_node);
+
+        let new_positions = self.compute_node.read_position_buffer(&self.app);
+
+        let new_velocities = self.compute_node.read_velocity_buffer(&self.app);
+
+        for i in 0..self.compute_state.instances.len() {
+            self.compute_state.instances[i].position = new_positions[i];
+            self.compute_state.instances[i].velocity = new_velocities[i];
+        }
+
+        // Update the instance buffer for rendering
+        self.instance_state
+            .update(&self.app, &self.compute_state.instances);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -325,7 +349,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.draw_model_instanced(
                 &self.obj_model,
-                0..self.instance_state.instances.len() as u32,
+                0..self.instance_state.instances_number as u32,
                 &self.camera_state.camera_bind_group,
                 &self.light_state.light_bind_group,
             );

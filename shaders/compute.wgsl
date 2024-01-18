@@ -8,15 +8,27 @@ struct Instances {
     velocity: vec3f,
 }
 
-// 输入，物体实例的 buffer
+// 力的常数 K
+const K: f32 = 3000.0;
+
+// 时间步长
 @group(0) @binding(0)
-var<storage, read> instances: array<Instances>;
-// 输出，碰撞检测的结果
+var<storage, read> time_step: f32;
+// 边界，[-boundary, boundary]，如果距离 boundary 小于半径，就认为发生了碰撞
 @group(0) @binding(1)
-var<storage, read_write> collision_result: array<u32>;
-// 输出，碰撞检测的结果的数量
+var<storage, read> boundary: f32;
+
+// 输入，物体实例的 buffer
 @group(0) @binding(2)
+var<storage, read> instances: array<Instances>;
+// 输出，碰撞检测的结果的数量
+@group(0) @binding(3)
 var<storage, read_write> collision_result_count: atomic<u32>;
+// 输出，碰撞检测后的速度和位置
+@group(0) @binding(4)
+var<storage, read_write> result_position: array<vec3f>;
+@group(0) @binding(5)
+var<storage, read_write> result_velocity: array<vec3f>;
 
 @compute @workgroup_size(32)
 fn naive_collision_test(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -31,18 +43,63 @@ fn naive_collision_test(@builtin(global_invocation_id) id: vec3<u32>) {
     if (my_idx >= len) {
         return;        
     }
+
+    var total_force = vec3f(0.0, 0.0, 0.0);
     for (var i = 0u; i < len; i = i + 1u) {
+
         if (i == my_idx) {
             continue;
         }
         let other_instance = instances[i];
-        let distance = length(my_instance.position - other_instance.position);
-        let result_id = my_idx * len + i;
-        if (distance < my_instance.radius + other_instance.radius) {
-            // collision_result[result_id] = 1u;
+        let rel_pos = my_instance.position - other_instance.position;
+        let distance = length(rel_pos);
+        let delta = -distance + my_instance.radius + other_instance.radius;
+        
+        if (delta > 0.0) {
+            // 发生了碰撞
             atomicAdd(&collision_result_count, 1u);
-        } else {
-            // collision_result[result_id] = 0u;
+            let normal = normalize(rel_pos);
+            let f = K * delta * normal; // force
+            total_force = total_force + f; // 累加所有的力
         }
     }
+    // 和边界的碰撞
+    // x 方向
+    let delta_x_pos = my_instance.position.x + my_instance.radius - boundary;
+    if(delta_x_pos > 0.0) {
+        total_force.x = total_force.x - K * delta_x_pos;
+    }
+    let delta_x_neg = my_instance.position.x - my_instance.radius + boundary;
+    if(delta_x_neg < 0.0) {
+        total_force.x = total_force.x - K * delta_x_neg;
+    }
+    // y 方向
+    let delta_y_pos = my_instance.position.y + my_instance.radius - boundary;
+    if(delta_y_pos > 0.0) {
+        total_force.y = total_force.y - K * delta_y_pos;
+    }
+    let delta_y_neg = my_instance.position.y - my_instance.radius + boundary;
+    if(delta_y_neg < 0.0) {
+        total_force.y = total_force.y - K * delta_y_neg;
+    }
+    // z 方向
+    let delta_z_pos = my_instance.position.z + my_instance.radius - boundary;
+    if(delta_z_pos > 0.0) {
+        total_force.z = total_force.z - K * delta_z_pos;
+    }
+    let delta_z_neg = my_instance.position.z - my_instance.radius + boundary;
+    if(delta_z_neg < 0.0) {
+        total_force.z = total_force.z - K * delta_z_neg;
+    }    
+
+    // 计算加速度
+    let mass = my_instance.radius * my_instance.radius * my_instance.radius;
+    let acceleration = total_force / mass;
+    // 计算速度
+    let velocity = my_instance.velocity + acceleration * time_step;
+    // 计算位置
+    let position = my_instance.position + velocity * time_step + acceleration * time_step * time_step * 0.5;
+    // 将结果写入输出
+    result_position[id.x] = position;
+    result_velocity[id.x] = velocity;
 }

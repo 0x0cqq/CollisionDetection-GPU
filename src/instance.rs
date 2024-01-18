@@ -1,11 +1,7 @@
 use app_surface::AppSurface;
-use rand::Rng;
 use wgpu::util::DeviceExt;
 
-use crate::model;
-
-const NUM_INSTANCES_PER_ROW: u32 = 1;
-
+use crate::{compute::ComputeInstance, model};
 
 /// The `Instance` struct represents an instance in 3D space with position and rotation.
 ///
@@ -50,6 +46,13 @@ impl Instance {
     }
 }
 
+impl ComputeInstance {
+    pub fn to_render_instance_raw(&self) -> InstanceRaw {
+        let model = glam::Mat4::from_translation(self.position).to_cols_array_2d();
+        let normal = glam::Mat3::from_rotation_z(0.0).to_cols_array_2d();
+        InstanceRaw { model, normal }
+    }
+}
 
 impl model::Vertex for InstanceRaw {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -106,73 +109,42 @@ impl model::Vertex for InstanceRaw {
 }
 
 pub struct InstanceState {
-    // instance related
-    pub instances: Vec<Instance>,
+    pub instances_number: usize,
     #[allow(dead_code)]
     pub instance_buffer: wgpu::Buffer,
 }
 
 impl InstanceState {
-    pub fn new(app: &AppSurface) -> Self {
-        const SPACE_BETWEEN: f32 = 3.0;
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-
-                    let position = glam::Vec3 { x, y: 0.0, z };
-
-                    let rotation = if position.length().abs() <= std::f32::EPSILON {
-                        glam::Quat::from_axis_angle(glam::Vec3::Z, 0.0)
-                    } else {
-                        glam::Quat::from_axis_angle(position.normalize(), std::f32::consts::FRAC_PI_4)
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances
+    // 在 [-range, range] 范围内随机生成 instances_number 个 Instance
+    pub fn new(app: &AppSurface, compute_instance: &[ComputeInstance]) -> Self {
+        let instances_data = compute_instance
             .iter()
-            .map(Instance::to_raw)
+            .map(ComputeInstance::to_render_instance_raw)
             .collect::<Vec<_>>();
         let instance_buffer = app
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(&instance_data),
+                contents: bytemuck::cast_slice(&instances_data),
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
         Self {
-            instances,
             instance_buffer,
+            instances_number: instances_data.len(),
         }
     }
-    
-    pub fn update(&mut self, app: &AppSurface) {
-        let mut rng = rand::thread_rng();
-        let instance = &mut self.instances[0];
-        instance.position.x += rng.gen_range(-0.1..0.1);
-        instance.position.z += rng.gen_range(-0.1..0.1);
-        instance.rotation = if instance.position.length().abs() <= std::f32::EPSILON {
-            glam::Quat::from_axis_angle(glam::Vec3::Z, 0.0)
-        } else {
-            glam::Quat::from_axis_angle(instance.position.normalize(), std::f32::consts::FRAC_PI_4)
-        };
 
+    pub fn update(&mut self, app: &AppSurface, compute_instance: &[ComputeInstance]) {
+        self.instances_number = compute_instance.len();
+        let instances_data = compute_instance
+            .iter()
+            .map(ComputeInstance::to_render_instance_raw)
+            .collect::<Vec<_>>();
         // Update the instance buffer
         app.queue.write_buffer(
             &self.instance_buffer,
             0,
-            bytemuck::cast_slice(
-                &self
-                    .instances
-                    .iter()
-                    .map(|instance| instance.to_raw())
-                    .collect::<Vec<_>>(),
-            ),
+            bytemuck::cast_slice(&instances_data),
         );
     }
 }

@@ -1,7 +1,9 @@
-use std::{io::Write, iter, sync::Arc};
+use std::{iter, sync::Arc};
 
 use app_surface::AppSurface;
-use wgpu::{include_wgsl, util::DeviceExt, ShaderModule};
+use wgpu::{util::DeviceExt, ShaderModule};
+
+use crate::utils;
 
 /// 定义了一个 Rust 结构体“ComputeInstance”和相应的原始表示“ComputeInstanceRaw”，以实现高效的内存处理。
 ///
@@ -12,11 +14,12 @@ use wgpu::{include_wgsl, util::DeviceExt, ShaderModule};
 /// `f32` 值。
 /// * `radius`: “radius”属性表示计算实例的大小或范围。它的类型为“f32”，这意味着它是一个单精度浮点数。
 /// * `velocity`: “velocity”属性表示“ComputeInstance”移动的速度和方向。它是一个 `glam::Vec3`，它是一个 3 维向量，存储速度的 x、y 和 z 分量。
+#[derive(Debug, Copy, Clone)]
 pub struct ComputeInstance {
-    id: u32,
-    position: glam::Vec3,
-    radius: f32,
-    velocity: glam::Vec3,
+    pub id: u32,
+    pub position: glam::Vec3,
+    pub radius: f32,
+    pub velocity: glam::Vec3,
 }
 
 #[repr(C)]
@@ -46,13 +49,20 @@ impl ComputeInstance {
     }
 }
 
+pub struct ComputeState {
+    pub instances: Vec<ComputeInstance>,
+}
+
 pub struct ComputeTestNode {
     pipeline: wgpu::ComputePipeline,
     bind_group: wgpu::BindGroup,
     buffer_len: u32,
     instances_buffer: Arc<wgpu::Buffer>,
-    output_result_buffer: Arc<wgpu::Buffer>,
+    time_step_buffer: Arc<wgpu::Buffer>,
+    boundary_buffer: Arc<wgpu::Buffer>,
     output_cnt_buffer: Arc<wgpu::Buffer>,
+    output_position_buffer: Arc<wgpu::Buffer>,
+    output_velocity_buffer: Arc<wgpu::Buffer>,
 }
 
 impl ComputeTestNode {
@@ -73,9 +83,30 @@ impl ComputeTestNode {
                             },
                             count: None,
                         },
-                        // 一个可读可写的存储缓冲区，用于输出结果
                         wgpu::BindGroupLayoutEntry {
                             binding: 1,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        // 一个可读可写的存储缓冲区，用于输出结果
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        // 一个可读可写的存储缓冲区，用于输出
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
                             visibility: wgpu::ShaderStages::COMPUTE,
                             ty: wgpu::BindingType::Buffer {
                                 ty: wgpu::BufferBindingType::Storage { read_only: false },
@@ -84,9 +115,18 @@ impl ComputeTestNode {
                             },
                             count: None,
                         },
-                        // 一个可读可写的存储缓冲区，用于输出
                         wgpu::BindGroupLayoutEntry {
-                            binding: 2,
+                            binding: 4,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 5,
                             visibility: wgpu::ShaderStages::COMPUTE,
                             ty: wgpu::BindingType::Buffer {
                                 ty: wgpu::BufferBindingType::Storage { read_only: false },
@@ -114,24 +154,31 @@ impl ComputeTestNode {
             });
 
         println!(
-            "instance raw size: {}",
+            "Compute instance raw size: {}",
             std::mem::size_of::<ComputeInstanceRaw>()
         );
+
+        let time_step_buffer = Arc::new(app.device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Time Step Buffer"),
+                contents: bytemuck::cast_slice(&[0.05f32]),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            },
+        ));
+
+        let boundary_buffer = Arc::new(app.device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Boundary Buffer"),
+                contents: bytemuck::cast_slice(&[10.0f32]),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            },
+        ));
 
         let instances_buffer = Arc::new(app.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Input Buffer"),
             size: buffer_len as u64
                 * std::mem::size_of::<ComputeInstanceRaw>() as wgpu::BufferAddress, // n * 32
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }));
-
-        let output_result_buffer = Arc::new(app.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Output Buffer"),
-            size: buffer_len as u64
-                // * buffer_len as u64
-                * std::mem::size_of::<u32>() as wgpu::BufferAddress, // n * n * 4
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         }));
 
@@ -143,6 +190,20 @@ impl ComputeTestNode {
             },
         ));
 
+        let output_velocity_buffer = Arc::new(app.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Output Velocity Buffer"),
+            size: buffer_len as u64 * 4 * std::mem::size_of::<u32>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+
+        let output_position_buffer = Arc::new(app.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Output Position Buffer"),
+            size: buffer_len as u64 * 4 * std::mem::size_of::<u32>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+
         let bind_group = app.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Bind Group"),
             layout: &bind_group_layout,
@@ -150,7 +211,7 @@ impl ComputeTestNode {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &instances_buffer,
+                        buffer: &time_step_buffer,
                         offset: 0,
                         size: None,
                     }),
@@ -158,7 +219,7 @@ impl ComputeTestNode {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &output_result_buffer,
+                        buffer: &boundary_buffer,
                         offset: 0,
                         size: None,
                     }),
@@ -166,7 +227,31 @@ impl ComputeTestNode {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &instances_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &output_cnt_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &output_position_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &output_velocity_buffer,
                         offset: 0,
                         size: None,
                     }),
@@ -178,9 +263,12 @@ impl ComputeTestNode {
             pipeline,
             bind_group,
             buffer_len,
+            time_step_buffer,
+            boundary_buffer,
             instances_buffer,
-            output_result_buffer,
             output_cnt_buffer,
+            output_position_buffer,
+            output_velocity_buffer,
         }
     }
     pub fn dispatch<'a, 'b: 'a>(&'b self, cpass: &mut wgpu::ComputePass<'a>, workgroup_count: u32) {
@@ -189,110 +277,155 @@ impl ComputeTestNode {
         cpass.dispatch_workgroups(workgroup_count, 1, 1);
     }
 
-    pub fn write_input_buffer(&self, app: &AppSurface, instances: &[ComputeInstanceRaw]) {
-        app.queue
-            .write_buffer(&self.instances_buffer, 0, bytemuck::cast_slice(&instances));
+    pub fn write_instances_buffer(&self, app: &AppSurface, instances: &[ComputeInstance]) {
+        app.queue.write_buffer(
+            &self.instances_buffer,
+            0,
+            bytemuck::cast_slice(
+                &instances
+                    .iter()
+                    .map(ComputeInstance::to_raw)
+                    .collect::<Vec<_>>(),
+            ),
+        );
     }
-    pub fn read_output_buffer(&self, app: &AppSurface) {
-        // let output_buffer = self.output_result_buffer.clone();
 
-        // output_buffer
-        //     .clone()
-        //     .slice(..)
-        //     .map_async(wgpu::MapMode::Read, move |result| {
-        //         result.expect("failed to map storage buffer");
-        //         let binding = output_buffer.clone();
-        //         let contents = binding.slice(..).get_mapped_range();
-        //         let readback = contents
-        //             .chunks_exact(std::mem::size_of::<u32>())
-        //             .map(|bytes| u32::from_ne_bytes(bytes.try_into().unwrap()))
-        //             .collect::<Vec<_>>();
-        //         println!("Output: {readback:?}");
-        //     });
-
-        let cnt_buffer = self.output_cnt_buffer.clone();
-
-        cnt_buffer
-        .clone()
-        .slice(..)
-        .map_async(wgpu::MapMode::Read,  move |result| {
-            result.expect("failed to map storage buffer");
-                let binding = cnt_buffer.clone();
-                let contents = binding.slice(..).get_mapped_range();
-                let readback = contents
-                    .chunks_exact(std::mem::size_of::<u32>())
-                    .map(|bytes| u32::from_ne_bytes(bytes.try_into().unwrap()))
-                    .collect::<Vec<_>>();
-                println!("Output: {readback:?}");
-                // flush the stdout
-                std::io::stdout().flush().unwrap();
+    pub fn read_buffer_bytes(&self, app: &AppSurface, buffer: Arc<wgpu::Buffer>) -> Vec<u8> {
+        buffer
+            .clone()
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                result.expect("failed to map storage buffer");
             });
-            
-        // waiting for the map to complete
-        while ! app.device.poll(wgpu::MaintainBase::Wait) {
+
+        while !app.device.poll(wgpu::MaintainBase::Wait) {
             // println!("waiting for the map to complete");
         }
-        
-        let cnt_buffer2 = self.output_cnt_buffer.clone();
+
+        let mut results: Vec<u8> = Vec::new();
+
         {
-            let bufferview = cnt_buffer2.slice(..).get_mapped_range();
-            let readback = bufferview
-                .chunks_exact(std::mem::size_of::<u32>())
-                .map(|bytes| u32::from_ne_bytes(bytes.try_into().unwrap()))
-                .collect::<Vec<_>>();
-            println!("Output Count: {readback:?}");
+            // map the buffer and read results
+            let bufferview = buffer.slice(..).get_mapped_range();
+            let readback = bufferview.to_vec();
+            // copy readback to results
+            results.extend_from_slice(&readback);
         }
 
         // unmap the buffer
-        cnt_buffer2.clone().unmap();
+        buffer.clone().unmap();
 
+        results
+    }
+
+    pub fn output_buffer(&self, app: &AppSurface) {
+        // cnt buffer
+        utils::output_bytes_as_u32(
+            &self.read_buffer_bytes(app, self.output_cnt_buffer.clone()),
+            "Count",
+        );
+        // position buffer
+        utils::output_bytes_as_f32(
+            &self.read_buffer_bytes(app, self.output_position_buffer.clone()),
+            "Position",
+        );
+        // velocity buffer
+        utils::output_bytes_as_f32(
+            &self.read_buffer_bytes(app, self.output_velocity_buffer.clone()),
+            "Velocity",
+        );
+    }
+
+    pub fn read_velocity_buffer(&self, app: &AppSurface) -> Vec<glam::Vec3> {
+        let bytes = self.read_buffer_bytes(app, self.output_velocity_buffer.clone());
+
+        let result_raw = utils::bytes_to_f32(&bytes);
+
+        let mut result: Vec<glam::Vec3> = Vec::new();
+
+        for i in 0..result_raw.len() / 4 {
+            result.push(glam::Vec3::new(
+                result_raw[i * 4],
+                result_raw[i * 4 + 1],
+                result_raw[i * 4 + 2],
+            ));
+        }
+
+        result
+    }
+
+    pub fn read_position_buffer(&self, app: &AppSurface) -> Vec<glam::Vec3> {
+        let bytes = self.read_buffer_bytes(app, self.output_position_buffer.clone());
+
+        let result_raw = utils::bytes_to_f32(&bytes);
+
+        let mut result: Vec<glam::Vec3> = Vec::new();
+
+        for i in 0..result_raw.len() / 4 {
+            result.push(glam::Vec3::new(
+                result_raw[i * 4],
+                result_raw[i * 4 + 1],
+                result_raw[i * 4 + 2],
+            ));
+        }
+
+        result
+    }
+
+    pub fn set_boundary(&self, app: &AppSurface, boundary: f32) {
+        app.queue
+            .write_buffer(&self.boundary_buffer, 0, bytemuck::cast_slice(&[boundary]));
+    }
+
+    pub fn set_time_step(&self, app: &AppSurface, time_step: f32) {
+        app.queue.write_buffer(
+            &self.time_step_buffer,
+            0,
+            bytemuck::cast_slice(&[time_step]),
+        );
+    }
+
+    pub fn collision_test_cpu(instances: &[ComputeInstance]) {
+        let start = std::time::Instant::now();
+
+        let mut ans = 0;
+        let len = instances.len();
+
+        for i in 0..len {
+            for j in 0..len {
+                if i == j {
+                    continue;
+                }
+                let instance_i = &instances[i];
+                let instance_j = &instances[j];
+                let distance = (instance_i.position - instance_j.position).length();
+                if distance < instance_i.radius + instance_j.radius {
+                    ans += 1;
+                }
+            }
+        }
+
+        let end = std::time::Instant::now();
+
+        println!("Compute time (CPU): {:?}, ans: {}", end - start, ans);
     }
 }
 
-pub fn do_compute(app: &AppSurface, points: &[glam::Vec3]) {
-    let points_cnt = points.len() as u32;
-    println!("points_cnt: {points_cnt}");
-
-    let compute_shader = app
-        .device
-        .create_shader_module(include_wgsl!("../shaders/compute.wgsl"));
-
-    let computer_node = ComputeTestNode::new(&app, compute_shader, points_cnt);
-
+pub fn do_compute(app: &AppSurface, compute_node: &ComputeTestNode) {
     let mut encoder = app
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Compute Encoder"),
         });
-
-    let input_instances = points
-        .iter()
-        .enumerate()
-        .map(|(i, point)| ComputeInstance {
-            id: i as u32,
-            position: *point,
-            radius: 0.15,
-            velocity: glam::Vec3::ZERO,
-        })
-        .map(|instance| instance.to_raw())
-        .collect::<Vec<_>>();
-
-    computer_node.write_input_buffer(&app, &input_instances);
-
     {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Compute pass"),
             ..Default::default()
         });
 
-        computer_node.dispatch(&mut cpass, points_cnt / 32 + 1);
+        compute_node.dispatch(&mut cpass, compute_node.buffer_len / 32 + 1);
     }
 
-    // println!("input: {:?}", input_instances);
-    
     app.queue.submit(iter::once(encoder.finish()));
     app.device.poll(wgpu::MaintainBase::Wait);
-    
-    computer_node.read_output_buffer(app);
-    // wait for the compute shader to finish
 }

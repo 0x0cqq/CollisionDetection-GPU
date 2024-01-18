@@ -1,4 +1,3 @@
-
 pub fn create_render_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
@@ -57,4 +56,34 @@ pub fn create_render_pipeline(
         // indicates how many array layers the attachments will have.
         multiview: None,
     })
+}
+
+pub fn bytes_to_u32(bytes: &[u8]) -> Vec<u32> {
+    let mut results: Vec<u32> = Vec::new();
+
+    for i in 0..bytes.len() / 4 {
+        let value = u32::from_ne_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
+        results.push(value);
+    }
+
+    results
+}
+
+pub fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
+    let mut results: Vec<f32> = Vec::new();
+
+    for i in 0..bytes.len() / 4 {
+        let value = f32::from_ne_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
+        results.push(value);
+    }
+
+    results
+}
+
+pub fn output_bytes_as_u32(bytes: &[u8], label: &str) {
+    println!("Label: {:?} Output: {:?}", label, bytes_to_u32(bytes));
+}
+
+pub fn output_bytes_as_f32(bytes: &[u8], label: &str) {
+    println!("Label: {:?} Output: {:?}", label, bytes_to_f32(bytes));
 }
