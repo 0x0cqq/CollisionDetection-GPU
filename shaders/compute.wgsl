@@ -9,7 +9,9 @@ struct Instances {
 }
 
 // 力的常数 K
-const K: f32 = 3000.0;
+const K: f32 = 10.0;
+
+const G: f32 = 9.8;
 
 // 时间步长
 @group(0) @binding(0)
@@ -63,43 +65,46 @@ fn naive_collision_test(@builtin(global_invocation_id) id: vec3<u32>) {
             total_force = total_force + f; // 累加所有的力
         }
     }
+
+    // 计算加速度
+    let mass = my_instance.radius * my_instance.radius * my_instance.radius;
+    let acceleration = total_force / mass + vec3f(0.0, -G, 0.0);
+    // 计算速度
+    var velocity = my_instance.velocity + acceleration * time_step;
+    
     // 和边界的碰撞
     // x 方向
     let delta_x_pos = my_instance.position.x + my_instance.radius - boundary;
     if(delta_x_pos > 0.0) {
-        total_force.x = total_force.x - K * delta_x_pos;
+        velocity.x = - abs(velocity.x);
     }
     let delta_x_neg = my_instance.position.x - my_instance.radius + boundary;
     if(delta_x_neg < 0.0) {
-        total_force.x = total_force.x - K * delta_x_neg;
+        velocity.x = abs(velocity.x);
     }
     // y 方向
     let delta_y_pos = my_instance.position.y + my_instance.radius - boundary;
     if(delta_y_pos > 0.0) {
-        total_force.y = total_force.y - K * delta_y_pos;
+        velocity.y = - abs(velocity.y);
     }
     let delta_y_neg = my_instance.position.y - my_instance.radius + boundary;
     if(delta_y_neg < 0.0) {
-        total_force.y = total_force.y - K * delta_y_neg;
+        velocity.y = abs(velocity.y);
     }
     // z 方向
     let delta_z_pos = my_instance.position.z + my_instance.radius - boundary;
     if(delta_z_pos > 0.0) {
-        total_force.z = total_force.z - K * delta_z_pos;
+        velocity.z = - abs(velocity.z);
     }
     let delta_z_neg = my_instance.position.z - my_instance.radius + boundary;
     if(delta_z_neg < 0.0) {
-        total_force.z = total_force.z - K * delta_z_neg;
+        velocity.z = abs(velocity.z);
     }    
-
-    // 计算加速度
-    let mass = my_instance.radius * my_instance.radius * my_instance.radius;
-    let acceleration = total_force / mass;
-    // 计算速度
-    let velocity = my_instance.velocity + acceleration * time_step;
+    
+    
     // 计算位置
-    let position = my_instance.position + velocity * time_step + acceleration * time_step * time_step * 0.5;
+    let position = my_instance.position + my_instance.velocity * time_step + acceleration * time_step * time_step * 0.5;
     // 将结果写入输出
     result_position[id.x] = position;
-    result_velocity[id.x] = velocity;
+    result_velocity[id.x] = velocity * 0.99;
 }

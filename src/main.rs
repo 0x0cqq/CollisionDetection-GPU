@@ -143,18 +143,22 @@ impl State {
             )
         };
 
-        // 统一的用来画的模型（目前是一个正方体）
+        let boundary = 5.0;
+        let points_cnt = 100;
+        let radius = 0.1f32;
+
+        // 统一的用来画的模型（目前是一个球体）
         let obj_model = resources::load_model(
             "sphere.obj",
             &app.device,
             &app.queue,
             &texture_bind_group_layout,
+            radius,
         )
         .await
         .unwrap();
 
-        let boundary = 5.0;
-        let points_cnt = 10;
+
 
         let mut compute_state = compute::ComputeState {
             instances: Vec::new(),
@@ -182,7 +186,7 @@ impl State {
             compute_state.instances.push(compute::ComputeInstance {
                 id: i as u32,
                 position: glam::Vec3::new(x, y, z),
-                radius: 1.0,
+                radius,
                 velocity: glam::Vec3::new(vx, vy, vz),
             })
         }
