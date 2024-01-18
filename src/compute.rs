@@ -93,18 +93,16 @@ impl ComputeTestNode {
                             },
                             count: None,
                         },
-                        // 一个可读可写的存储缓冲区，用于输出结果
                         wgpu::BindGroupLayoutEntry {
                             binding: 2,
                             visibility: wgpu::ShaderStages::COMPUTE,
                             ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                ty: wgpu::BufferBindingType::Storage { read_only: false },
                                 has_dynamic_offset: false,
                                 min_binding_size: None,
                             },
                             count: None,
                         },
-                        // 一个可读可写的存储缓冲区，用于输出
                         wgpu::BindGroupLayoutEntry {
                             binding: 3,
                             visibility: wgpu::ShaderStages::COMPUTE,
@@ -423,7 +421,7 @@ pub fn do_compute(app: &AppSurface, compute_node: &ComputeTestNode) {
             ..Default::default()
         });
 
-        compute_node.dispatch(&mut cpass, compute_node.buffer_len / 32 + 1);
+        compute_node.dispatch(&mut cpass, compute_node.buffer_len / 64 + 1);
     }
 
     app.queue.submit(iter::once(encoder.finish()));

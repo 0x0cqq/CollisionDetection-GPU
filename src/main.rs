@@ -143,8 +143,8 @@ impl State {
             )
         };
 
-        let boundary = 5.0;
-        let points_cnt = 100;
+        let boundary = 10.0;
+        let points_cnt = 1000;
         let radius = 0.1f32;
 
         // 统一的用来画的模型（目前是一个球体）
@@ -282,20 +282,19 @@ impl State {
         self.camera_state.update(&self.app, dt);
         // Update the light position
         self.light_state.update(&self.app);
-        // Update the instances
-        self.compute_node.set_time_step(&self.app, dt.as_secs_f32());
-
+        
+        
         // Do collision detection and update back the compute_state instaces
-
+        let times_collision_detection = 100;
+        self.compute_node.set_time_step(&self.app, dt.as_secs_f32() / times_collision_detection as f32);
+        
         self.compute_node
-            .write_instances_buffer(&self.app, &self.compute_state.instances);
-
-        do_compute(&self.app, &self.compute_node);
-
+        .write_instances_buffer(&self.app, &self.compute_state.instances);
+        for _ in 0..times_collision_detection {
+            do_compute(&self.app, &self.compute_node);
+        }
         let new_positions = self.compute_node.read_position_buffer(&self.app);
-
         let new_velocities = self.compute_node.read_velocity_buffer(&self.app);
-
         for i in 0..self.compute_state.instances.len() {
             self.compute_state.instances[i].position = new_positions[i];
             self.compute_state.instances[i].velocity = new_velocities[i];
