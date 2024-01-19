@@ -28,7 +28,7 @@ fn agentgt(idx1 : u32, idx2 : u32) -> bool {
 
 
 
-@compute @workgroup_size(256)
+@compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id : vec3<u32>) {
     var global_tid = id.x;
     let j = sort_params.j;

@@ -155,7 +155,7 @@ impl State {
         .await
         .unwrap();
 
-        let mut compute_state = compute::ComputeState::new(&app, points_cnt as u32, boundary);
+        let mut compute_state = compute::ComputeState::new(&app, points_cnt as u32, boundary, 2.0 * radius);
         // set points
 
         for i in 0..points_cnt {
@@ -253,7 +253,7 @@ impl State {
     fn update(&mut self, dt: std::time::Duration) {
         // Update the FPS to the title
         let now = std::time::Instant::now();
-        let is_fps_update = now - self.last_fps_update >= std::time::Duration::from_secs_f32(1.0);
+        let is_fps_update = now - self.last_fps_update >= std::time::Duration::from_secs_f32(0.1);
         if is_fps_update {
             self.app
                 .view

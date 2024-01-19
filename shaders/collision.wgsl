@@ -13,9 +13,31 @@ var<storage, read_write> cells: array<CellIndex>;
 var<storage, read_write> results: array<Result>;
 
 
+fn get_index_from_grid(grid_index: vec3u) -> u32 {
+    let grid_count_x = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let grid_count_y = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let grid_count_z = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    return grid_index.x + grid_index.y * grid_count_x + grid_index.z * grid_count_x * grid_count_y;
+}
+
+fn get_grid_from_index(index: u32) -> vec3u {
+    let grid_count_x = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let grid_count_y = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let grid_count_z = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let z = index / (grid_count_x * grid_count_y);
+    let y = (index - z * grid_count_x * grid_count_y) / grid_count_x;
+    let x = index - z * grid_count_x * grid_count_y - y * grid_count_x;
+    return vec3u(x, y, z);
+}
+
+
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let grid_count_x = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let grid_count_y = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let grid_count_z = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+
     let boundary = params.boundary;
     let time_step = params.time_step;
 
@@ -29,19 +51,43 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     let mass = my_instance.radius * my_instance.radius * my_instance.radius;
     var total_force = vec3f(0.0, 0.0, 0.0);
-    for (var i = 0u; i < len; i = i + 1u) {
-        if (i == my_idx) {
-            continue;
-        }
-        let other_instance = instances[i];
-        let rel_pos = my_instance.position - other_instance.position;
-        let distance = length(rel_pos);
-        let delta = -distance + my_instance.radius + other_instance.radius;
-        
-        if (delta > 0.0) {                      // 碰撞
-            let normal = normalize(rel_pos);    // 碰撞法线
-            let f = K * delta * normal;         // 碰撞力
-            total_force = total_force + f;      // 累加所有的力
+
+    for (var dx = -1; dx <= 1; dx = dx + 1) {
+        for (var dy = -1; dy <= 1; dy = dy + 1) {
+            for (var dz = -1; dz <= 1; dz = dz + 1) {
+                let cell_grid = get_grid_from_index(my_instance.cell_index);
+                let neigh_grid_i = vec3i(cell_grid) + vec3i(dx, dy, dz);
+                // out of range
+                if (neigh_grid_i.x < 0 || neigh_grid_i.y < 0 || neigh_grid_i.z < 0) {
+                    continue;
+                }
+
+                let neigh_grid = vec3u(neigh_grid_i);
+
+                if (neigh_grid.x >= grid_count_x || neigh_grid.y >= grid_count_y || neigh_grid.z >= grid_count_z) {
+                    continue;
+                }
+
+
+                let neigh_index = get_index_from_grid(neigh_grid);
+                let cell_start = cells[neigh_index].start;
+                let cell_end = cells[neigh_index].end;
+                for(var i = cell_start; i < cell_end; i = i + 1u) {
+                    if (i == my_idx) {
+                        continue;
+                    }
+                    let other_instance = instances[i];
+                    let rel_pos = my_instance.position - other_instance.position;
+                    let distance = length(rel_pos);
+                    let delta = -distance + my_instance.radius + other_instance.radius;
+                    
+                    if (delta > 0.0) {                      // 碰撞
+                        let normal = normalize(rel_pos);    // 碰撞法线
+                        let f = K * delta * normal;         // 碰撞力
+                        total_force = total_force + f;      // 累加所有的力
+                    }
+                }
+            }
         }
     }
 

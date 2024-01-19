@@ -10,7 +10,7 @@ var<storage, read_write> instances: array<Instance>;
 var<storage, read_write> cells: array<CellIndex>;
 
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {    
     let idx = id.x;
 
     if (idx >= arrayLength(&instances)) {

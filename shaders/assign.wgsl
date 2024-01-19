@@ -20,19 +20,15 @@ fn calculate_grid(position: vec3f) -> vec3u{
 
 
 fn get_index_from_grid(grid_index: vec3u) -> u32 {
-    let grid_count_x = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
-    let grid_count_y = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
-    let grid_count_z = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
-    return grid_index.x + grid_index.y * grid_count_x + grid_index.z * grid_count_x * grid_count_y;
+    let grid_count = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    return grid_index.x + grid_index.y * grid_count + grid_index.z * grid_count * grid_count;
 }
 
 fn get_grid_from_index(index: u32) -> vec3u {
-    let grid_count_x = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
-    let grid_count_y = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
-    let grid_count_z = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
-    let z = index / (grid_count_x * grid_count_y);
-    let y = (index - z * grid_count_x * grid_count_y) / grid_count_x;
-    let x = index - z * grid_count_x * grid_count_y - y * grid_count_x;
+    let grid_count = u32(ceil(params.boundary * 2.0 / params.grid_size) + 0.5);
+    let z = index / (grid_count * grid_count);
+    let y = (index - z * grid_count * grid_count) / grid_count;
+    let x = index - z * grid_count * grid_count - y * grid_count;
     return vec3u(x, y, z);
 }
 
@@ -41,16 +37,11 @@ fn get_grid_from_index(index: u32) -> vec3u {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>,  @builtin(num_workgroups) num_groups: vec3<u32>) {
     let total_instance_count = arrayLength(&instances);
-    let workgroup_size = 64u;
-    let num_threads = num_groups.x * workgroup_size;
-
-    for(var base = 0u; base < total_instance_count; base = base + num_threads) {
-        let my_idx = base + id.x;
-        if (my_idx >= total_instance_count) {
-            break;
-        }
-        let grid = calculate_grid(instances[my_idx].position);
-        let my_cell_index = get_index_from_grid(grid);
-        instances[my_idx].cell_index = my_cell_index;
+    let my_idx = id.x;
+    if (my_idx >= total_instance_count) {
+        return;
     }
+    let grid = calculate_grid(instances[my_idx].position);
+    let my_cell_index = get_index_from_grid(grid);
+    instances[my_idx].cell_index = my_cell_index;
 }

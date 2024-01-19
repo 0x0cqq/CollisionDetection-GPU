@@ -46,7 +46,7 @@ impl ComputeInstance {
 pub struct Parameters {
     pub time_step: f32,
     pub boundary: f32,
-    pub grid_size: u32,
+    pub grid_size: f32,
 }
 
 #[repr(C)]
@@ -213,20 +213,24 @@ pub struct ComputeState {
     pub instances: Vec<ComputeInstance>,
     buffer_len: u32,                           // the number of instances
     boundary: f32,                             // the boundary of the simulation
+    grid_size: f32,                            // the size of the grid
     pub params_buffer: Arc<wgpu::Buffer>,      // group 0
     pub instances_buffer: Arc<wgpu::Buffer>,   // group 1
     pub sort_params_buffer: Arc<wgpu::Buffer>, // group 2
     pub cell_index_buffer: Arc<wgpu::Buffer>,  // group 3
     pub result_buffer: Arc<wgpu::Buffer>,      // group 4
 
-    pub assign_cell_node: ComputeNode,
-    pub sort_node: ComputeNode,
-    pub build_grid_node: ComputeNode,
-    pub collision_node: ComputeNode,
+    pub assign_cell_node: ComputeNode, // stage 1
+    pub sort_node: ComputeNode,        // stage 2
+    pub memset_node: ComputeNode,      // stage 3
+    pub build_grid_node: ComputeNode,  // stage 4
+    pub collision_node: ComputeNode,   // stage 5
 }
 
 impl ComputeState {
-    pub fn new(app: &AppSurface, buffer_len: u32, boundary: f32) -> Self {
+    pub fn new(app: &AppSurface, buffer_len: u32, boundary: f32, grid_size: f32) -> Self {
+        let grid_count = ((boundary * 2.0 / grid_size).ceil() + 0.3) as u64;
+
         // 创建 buffer
         let params_buffer = Arc::new(app.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Params Buffer"),
@@ -251,7 +255,7 @@ impl ComputeState {
 
         let cell_index_buffer = Arc::new(app.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Cell Index Buffer"),
-            size: std::mem::size_of::<CellIndex>() as u64 * buffer_len as u64,
+            size: std::mem::size_of::<CellIndex>() as u64 * grid_count * grid_count * grid_count,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }));
@@ -281,6 +285,12 @@ impl ComputeState {
         );
         let sort_node =
             ComputeNode::new(app, include_str!("../shaders/sort.wgsl"), &buffers, "Sort");
+        let memset_node = ComputeNode::new(
+            app,
+            include_str!("../shaders/memset.wgsl"),
+            &buffers,
+            "Memset",
+        );
         let build_grid_node = ComputeNode::new(
             app,
             include_str!("../shaders/build_grid.wgsl"),
@@ -298,6 +308,7 @@ impl ComputeState {
             instances: Vec::new(),
             buffer_len,
             boundary,
+            grid_size,
             params_buffer,
             instances_buffer,
             sort_params_buffer,
@@ -305,6 +316,7 @@ impl ComputeState {
             result_buffer,
             assign_cell_node,
             sort_node,
+            memset_node,
             build_grid_node,
             collision_node,
         }
@@ -338,33 +350,36 @@ impl ComputeState {
             for _ in 0..simulation_rounds {
                 // 以下是一次完整的碰撞检测,我们会切碎时间块之后再进行碰撞检测
                 // assign cell
-                // self.assign_cell_node.dispatch(&mut cpass, 128);
+                self.assign_cell_node.dispatch(&mut cpass, self.buffer_len as u32 / 64 + 1);
 
-                // // bitonic sort
-                // // adapted from Wikipedia's non-recursive example of bitonic sort:
-                // // https://en.wikipedia.org/wiki/Bitonic_sorter
-                // let mut k = 2;
-                // while k <= self.buffer_len {
-                //     // k is doubled every iteration
-                //     let mut j = k >> 1;
-                //     while j > 0 {
-                //         // j is halved at every iteration, with truncation of fractional parts
-                //         let sort_params = SortParams { j, k };
-                //         app.queue.write_buffer(
-                //             &self.sort_params_buffer,
-                //             0,
-                //             bytemuck::cast_slice(&[sort_params]),
-                //         );
+                // bitonic sort
+                // adapted from Wikipedia's non-recursive example of bitonic sort:
+                // https://en.wikipedia.org/wiki/Bitonic_sorter
+                let mut k = 2;
+                while k <= self.buffer_len {
+                    // k is doubled every iteration
+                    let mut j = k >> 1;
+                    while j > 0 {
+                        // j is halved at every iteration, with truncation of fractional parts
+                        let sort_params = SortParams { j, k };
+                        app.queue.write_buffer(
+                            &self.sort_params_buffer,
+                            0,
+                            bytemuck::cast_slice(&[sort_params]),
+                        );
 
-                //         self.sort_node.dispatch(&mut cpass, 128);
+                        self.sort_node.dispatch(&mut cpass, self.buffer_len as u32 / 64 + 1);
 
-                //         j >>= 1;
-                //     }
-                //     k <<= 1;
-                // }
+                        j >>= 1;
+                    }
+                    k <<= 1;
+                }
 
-                // // build grid
-                // self.build_grid_node.dispatch(&mut cpass, 128);
+                // memset index
+                self.memset_node.dispatch(&mut cpass, 128);
+
+                // build grid
+                self.build_grid_node.dispatch(&mut cpass, self.buffer_len as u32 / 64 + 1);
 
                 // collision detection
                 self.collision_node
@@ -386,7 +401,7 @@ impl ComputeState {
         let params = Parameters {
             time_step: dt.as_secs_f32() / simulation_rounds as f32,
             boundary: self.boundary,
-            grid_size: 1, // to be modified
+            grid_size: self.grid_size, // to be modified
         };
 
         app.queue.write_buffer(
