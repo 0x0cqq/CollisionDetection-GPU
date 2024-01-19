@@ -42,7 +42,9 @@
 
 + Rust 1.74.1：可以从 Rust 官网下载 https://www.rust-lang.org/zh-CN/learn/get-started
 + 其他依赖包以 `cargo.toml` 中为准，以 `wgpu` 作为图形后端，`winit` 作为窗口后端。
-+ 在项目根目录下运行 `cargo run --release` 即可编译运行
++ 在项目根目录下运行 `cargo run --release` 即可编译运行，二进制在 `target/release` 目录下
+
+（因为编译后的二进制依赖本地资源，所以无法直接运行编译后的二进制文件）
 
 = 各个程序模块之间的逻辑关系
 
@@ -206,8 +208,9 @@
   #image("demo.jpg", width: 80%)
 ]
 
-= 性能分析
+演示视频在 demo.mp4。由于GPU占用高，录屏清晰度较差，实际清晰度很高。
 
+5000 个球可以达到约 40 FPS。
 
 = 参考文献或引用代码出处
 

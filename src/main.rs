@@ -141,7 +141,7 @@ impl State {
         };
 
         let boundary = 10.0;
-        let points_cnt = 10000;
+        let points_cnt = 5000;
         let radius = 0.2f32;
 
         // 统一的用来画的模型（目前是一个球体）
