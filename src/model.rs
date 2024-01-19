@@ -6,8 +6,16 @@ pub trait Vertex {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a>;
 }
 
-
-// model 中的点
+/// “ModelVertex”结构表示 3D 模型中的顶点，包含位置、纹理坐标、法线、切线和双切线数据。
+///
+/// Properties:
+///
+/// * `position`: 表示顶点在空间中的位置的 3D 坐标。
+/// * `tex_coords`: `tex_coords` 属性表示顶点的纹理坐标。纹理坐标用于将 2D 纹理映射到 3D
+/// 模型上。它们指定如何将纹理应用到模型的表面。在本例中，“tex_coords”是一个包含两个的数组
+/// * `normal`: 法线属性表示顶点的法线向量。它是一个在该顶点垂直于表面的 3D 矢量。法线用于照明计算，以确定光线如何与表面相互作用。
+/// * `tangent`: 切向量是垂直于表面法向量且位于纹理坐标平面内的向量。它在法线贴图中用于计算 3D 模型表面的光照。
+/// * `bitangent`: 双切线是垂直于顶点的法线向量和切线向量的向量。它在法线贴图中用于计算表面上的正确光照。
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ModelVertex {
@@ -56,7 +64,16 @@ impl Vertex for ModelVertex {
     }
 }
 
-// 材质
+/// “Material”结构表示具有名称、漫反射和法线纹理以及用于 GPU 绑定的绑定组的材质。
+///
+/// Properties:
+///
+/// * `name`: 代表材质名称的字符串。
+/// * `diffuse_texture`: `diffuse_texture` 属性的类型为 `texture::Texture`。它表示用于材质漫反射颜色的纹理。
+/// * `normal_texture`: `normal_texture` 属性的类型为
+/// `texture::Texture`。它表示用于材质中法线贴图的纹理。法线贴图是计算机图形学中使用的一种技术，通过模拟小凹凸和缝隙来向表面添加细节。
+/// * `bind_group`: `bind_group` 是 `wgpu::BindGroup` 类型的属性。它在 WebGPU API 的上下文中使用，WebGPU API 是用于 Web
+/// 的低级图形和计算 API。 “BindGroup”表示绑定在一起并由着色器使用的资源集合
 pub struct Material {
     pub name: String,
     pub diffuse_texture: texture::Texture,
@@ -104,6 +121,16 @@ impl Material {
     }
 }
 
+/// “Mesh”结构表示具有名称、顶点和索引缓冲区、元素数量和材质索引的 3D 网格。
+///
+/// Properties:
+///
+/// * `name`: 表示网格名称的字符串。
+/// * `vertex_buffer`: `vertex_buffer` 属性的类型为 `wgpu::Buffer`。用于存储网格体的顶点数据，如每个顶点的位置、法线、纹理坐标等。该缓冲区通常由
+/// WebGPU 或 Vulkan 等图形 API 创建和管理。
+/// * `index_buffer`: “index_buffer”属性是一个缓冲区，用于存储组成网格的顶点的索引。它用于确定渲染顶点以创建所需形状的顺序。
+/// * `num_elements`: “num_elements”属性表示网格中的元素数量。这通常是指网格中的顶点或索引的数量，具体取决于网格的定义方式。
+/// * `material`: “material”属性的类型为“usize”，表示分配给网格的材质的索引。
 pub struct Mesh {
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
@@ -112,6 +139,12 @@ pub struct Mesh {
     pub material: usize,
 }
 
+/// “Model”结构表示 3D 模型并包含网格和材质的集合。
+///
+/// Properties:
+///
+/// * `meshes`: 网格对象的向量。每个 Mesh 代表模型中的一个 3D 对象，由顶点、法线、纹理坐标和其他属性组成。
+/// * `materials`: “materials”属性是“Material”对象的向量。它存储用于渲染模型中的网格的材质。
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,

@@ -3,30 +3,12 @@ use wgpu::util::DeviceExt;
 
 use crate::{compute::ComputeInstance, model};
 
-/// The `Instance` struct represents an instance in 3D space with position and rotation.
+/// `InstanceRaw` 类型表示 Rust 中具有模型和普通矩阵的原始实例。
 ///
 /// Properties:
 ///
-/// * `position`: The `position` property is a 3D vector that represents the position of an instance in
-/// 3D space. It is typically used to store the x, y, and z coordinates of the instance's position.
-/// * `rotation`: The `rotation` property is of type `glam::Quat`. It represents the rotation of an
-/// instance in 3D space. A quaternion is a mathematical representation of a rotation that avoids the
-/// problems of gimbal lock and provides smooth interpolation between rotations.
-pub struct Instance {
-    pub position: glam::Vec3,
-    pub rotation: glam::Quat,
-}
-
-/// The `InstanceRaw` type represents a raw instance with model and normal matrices in Rust.
-///
-/// Properties:
-///
-/// * `model`: The `model` property is a 4x4 matrix of `f32` values. It represents the transformation
-/// matrix that is used to position, rotate, and scale an object in 3D space. This matrix is typically
-/// used to transform the vertices of a 3D model from model space
-/// * `normal`: The `normal` property is a 3x3 matrix of `f32` values. It represents the normal matrix,
-/// which is used to transform normal vectors in a 3D space. Normal vectors are used in lighting
-/// calculations to determine how light interacts with a surface.
+/// * `model`: 表示实例模型转换的 4x4 矩阵。该矩阵用于在 3D 空间中定位、旋转和缩放实例。矩阵的每个元素都是一个 32 位浮点数 (f32)。
+/// * `normal`: “normal”属性是“f32”值的 3x3 矩阵。它表示法线矩阵，用于在 3D 空间中变换法线向量。法线向量用于照明计算，以确定光如何与表面相互作用。
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 #[allow(dead_code)]
@@ -35,18 +17,12 @@ pub struct InstanceRaw {
     normal: [[f32; 3]; 3], // normal matrix
 }
 
-impl Instance {
-    pub fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: (glam::Mat4::from_translation(self.position)
-                * glam::Mat4::from_quat(self.rotation))
-            .to_cols_array_2d(),
-            normal: glam::Mat3::from_mat4(glam::Mat4::from_quat(self.rotation)).to_cols_array_2d(),
-        }
-    }
-}
-
 impl ComputeInstance {
+    /// “to_render_instance_raw”函数返回一个“InstanceRaw”结构，其中包含用于渲染的模型和法线矩阵。
+    ///
+    /// Returns:
+    ///
+    /// `InstanceRaw` 结构的一个实例。
     pub fn to_render_instance_raw(&self) -> InstanceRaw {
         let model = glam::Mat4::from_translation(self.position).to_cols_array_2d();
         let normal = glam::Mat3::from_rotation_z(0.0).to_cols_array_2d();
@@ -108,6 +84,12 @@ impl model::Vertex for InstanceRaw {
     }
 }
 
+/// `InstanceState` 结构体表示 Rust 程序中实例的状态，包括实例的数量和用于存储实例数据的缓冲区。
+///
+/// Properties:
+///
+/// * `instances_number`: 表示实例数量的无符号整数。此属性用于跟踪实例状态中的实例数量。
+/// * `instance_buffer`: `instance_buffer` 是 `wgpu::Buffer` 类型的属性。它是一个存储实例数据的缓冲区。
 pub struct InstanceState {
     pub instances_number: usize,
     #[allow(dead_code)]
@@ -115,7 +97,16 @@ pub struct InstanceState {
 }
 
 impl InstanceState {
-    // 在 [-range, range] 范围内随机生成 instances_number 个 Instance
+    /// 该函数在 Rust 中为给定的应用程序表面和计算实例创建一个新的实例缓冲区。
+    ///
+    /// Arguments:
+    ///
+    /// * `app`: “AppSurface”结构的实例，表示将在其中呈现实例的应用程序表面。
+    /// * `compute_instance`: `ComputeInstance` 对象的切片。
+    ///
+    /// Returns:
+    ///
+    /// `Self` 结构的一个实例。
     pub fn new(app: &AppSurface, compute_instance: &[ComputeInstance]) -> Self {
         let instances_data = compute_instance
             .iter()
@@ -134,6 +125,12 @@ impl InstanceState {
         }
     }
 
+    /// “update”函数使用来自“compute_instance”向量的数据更新实例缓冲区。
+    ///
+    /// Arguments:
+    ///
+    /// * `app`: “AppSurface”结构的实例，表示将发生渲染的应用程序表面或窗口。
+    /// * `compute_instance`: “compute_instance”是“ComputeInstance”对象的一部分。
     pub fn update(&mut self, app: &AppSurface, compute_instance: &[ComputeInstance]) {
         self.instances_number = compute_instance.len();
         let instances_data = compute_instance

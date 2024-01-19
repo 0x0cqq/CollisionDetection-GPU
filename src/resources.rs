@@ -1,63 +1,57 @@
 use std::io::{BufReader, Cursor};
 
-use cfg_if::cfg_if;
 use wgpu::util::DeviceExt;
 
 use crate::{model, texture};
 
-
-#[cfg(target_arch = "wasm32")]
-fn format_url(file_name: &str) -> reqwest::Url {
-    let window = web_sys::window().unwrap();
-    let location = window.location();
-    let base = reqwest::Url::parse(&format!(
-        "{}/{}/",
-        location.origin().unwrap(),
-        option_env!("RES_PATH").unwrap_or("res"),
-    ))
-    .unwrap();
-    base.join(file_name).unwrap()
-}
-
+/// `load_string` 函数将文件内容作为 Rust 中的字符串加载。
+///
+/// Arguments:
+///
+/// * `file_name`: `file_name` 参数是一个字符串，表示要加载的文件的名称。
+///
+/// Returns:
+///
+/// 函数“load_string”返回“Result”类型，成功情况包含“String”，错误情况包含“anyhow::Error”。
 pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
-    cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            let url = format_url(file_name);
-            let txt = reqwest::get(url)
-                .await?
-                .text()
-                .await?;
-        } else {
-            let path = std::path::Path::new(env!("OUT_DIR"))
-                .join("res")
-                .join(file_name);
-            let txt = std::fs::read_to_string(path)?;
-        }
-    }
+    let path = std::path::Path::new(env!("OUT_DIR"))
+        .join("res")
+        .join(file_name);
+    let txt = std::fs::read_to_string(path)?;
 
     Ok(txt)
 }
 
+/// 函数“load_binary”加载二进制文件并将其内容作为字节向量返回。
+///
+/// Arguments:
+///
+/// * `file_name`: `file_name` 参数是一个字符串，表示要作为二进制文件加载的文件的名称。
+///
+/// Returns:
+///
+/// 函数“load_binary”返回“Result”类型，成功情况包含“Vec<u8>”（字节向量），错误情况包含“anyhow::Error”。
 pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
-    cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            let url = format_url(file_name);
-            let data = reqwest::get(url)
-                .await?
-                .bytes()
-                .await?
-                .to_vec();
-        } else {
-            let path = std::path::Path::new(env!("OUT_DIR"))
-                .join("res")
-                .join(file_name);
-            let data = std::fs::read(path)?;
-        }
-    }
+    let path = std::path::Path::new(env!("OUT_DIR"))
+        .join("res")
+        .join(file_name);
+    let data = std::fs::read(path)?;
 
     Ok(data)
 }
 
+/// 函数“load_texture”从文件加载纹理并返回包含加载纹理的“Result”。
+///
+/// Arguments:
+///
+/// * `file_name`: 包含纹理数据的文件的名称。
+/// * `is_normal_map`: 一个布尔值，指示纹理是否是法线贴图。
+/// * `device`: `device` 参数是 `wgpu::Device` 的实例，它代表将用于创建和管理资源的 GPU 设备。
+/// * `queue`: `queue` 参数是 `wgpu::Queue` 的实例，它表示用于向设备提交 GPU 命令的命令队列。用于向GPU提交纹理加载命令进行处理。
+///
+/// Returns:
+///
+/// 一个“Result”类型，其中“Texture”结构作为成功变量，“anyhow::Error”作为错误变量。
 pub async fn load_texture(
     file_name: &str,
     is_normal_map: bool,
@@ -69,6 +63,19 @@ pub async fn load_texture(
     texture::Texture::from_bytes(device, queue, &data, file_name, is_normal_map)
 }
 
+/// Rust 中的“load_model”函数从文件加载 3D 模型，包括其材质和纹理，并使用网格和材质创建模型对象。
+///
+/// Arguments:
+///
+/// * `file_name`: 包含模型数据的文件的名称。
+/// * `device`: 对 wgpu::Device 的引用，表示用于渲染的 GPU 设备。
+/// * `queue`: `queue` 参数是 `wgpu::Queue` 的实例，它代表用于提交 GPU 命令的命令队列。它用于将命令提交给GPU进行处理。
+/// * `layout`: `layout` 参数是对 `wgpu::BindGroupLayout` 对象的引用。该对象定义用于将资源（例如纹理）绑定到着色器管道的绑定组的布局。它用于为模型创建材料。
+/// * `scale_factor`: “scale_factor”参数是一个浮点值，用于确定应用于模型顶点的缩放因子。它用于将模型调整到所需的尺寸。
+///
+/// Returns:
+///
+/// 如果加载过程成功，函数“load_model”将返回一个包含“model::Model”对象的“Result”。
 pub async fn load_model(
     file_name: &str,
     device: &wgpu::Device,
