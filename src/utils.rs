@@ -100,6 +100,7 @@ pub fn bytes_to_u32(bytes: &[u8]) -> Vec<u32> {
 /// Returns:
 ///
 /// `bytes_to_f32` 函数返回一个 `Vec<f32>`，它是 32 位浮点数的向量。
+#[allow(dead_code)]
 pub fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
     let mut results: Vec<f32> = Vec::new();
 
@@ -111,10 +112,12 @@ pub fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
     results
 }
 
+#[allow(dead_code)]
 pub fn output_bytes_as_u32(bytes: &[u8], label: &str) {
     println!("Label: {:?} Output: {:?}", label, bytes_to_u32(bytes));
 }
 
+#[allow(dead_code)]
 pub fn output_bytes_as_f32(bytes: &[u8], label: &str) {
     println!("Label: {:?} Output: {:?}", label, bytes_to_f32(bytes));
 }

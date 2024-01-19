@@ -1,9 +1,7 @@
 use std::iter;
 
 use app_surface::{AppSurface, SurfaceFrame};
-use compute::do_compute;
 use rand::Rng;
-use wgpu::include_wgsl;
 use winit::{event::*, window::WindowId};
 
 mod framework;
@@ -24,6 +22,7 @@ struct State {
     // pipelines
     render_pipeline: wgpu::RenderPipeline,
     light_render_pipeline: wgpu::RenderPipeline,
+    // model for drawing object
     obj_model: model::Model,
     depth_texture: texture::Texture,
     // camera related
@@ -32,8 +31,6 @@ struct State {
     light_state: light::LightState,
     // Instances related
     instance_state: instance::InstanceState,
-    // compute node
-    compute_node: compute::ComputeTestNode,
     // compute instances
     compute_state: compute::ComputeState,
     // fps related, last time we update fps
@@ -144,8 +141,8 @@ impl State {
         };
 
         let boundary = 10.0;
-        let points_cnt = 1000;
-        let radius = 0.1f32;
+        let points_cnt = 10000;
+        let radius = 0.2f32;
 
         // 统一的用来画的模型（目前是一个球体）
         let obj_model = resources::load_model(
@@ -158,20 +155,7 @@ impl State {
         .await
         .unwrap();
 
-
-
-        let mut compute_state = compute::ComputeState {
-            instances: Vec::new(),
-        };
-
-        let compute_shader = app
-            .device
-            .create_shader_module(include_wgsl!("../shaders/compute.wgsl"));
-        let compute_node = compute::ComputeTestNode::new(&app, compute_shader, points_cnt as u32);
-
-        // set boundary
-        compute_node.set_boundary(&app, boundary);
-
+        let mut compute_state = compute::ComputeState::new(&app, points_cnt as u32, boundary);
         // set points
 
         for i in 0..points_cnt {
@@ -198,7 +182,6 @@ impl State {
             app,
             render_pipeline,
             light_render_pipeline,
-            compute_node,
             obj_model,
             camera_state,
             light_state,
@@ -270,11 +253,11 @@ impl State {
     fn update(&mut self, dt: std::time::Duration) {
         // Update the FPS to the title
         let now = std::time::Instant::now();
-        if now - self.last_fps_update >= std::time::Duration::from_secs_f32(0.1) {
+        let is_fps_update = now - self.last_fps_update >= std::time::Duration::from_secs_f32(1.0);
+        if is_fps_update {
             self.app
                 .view
                 .set_title(&format!("FPS: {:.2}", 1.0 / dt.as_secs_f32()));
-
             self.last_fps_update = now;
         }
 
@@ -282,23 +265,9 @@ impl State {
         self.camera_state.update(&self.app, dt);
         // Update the light position
         self.light_state.update(&self.app);
-        
-        
+
         // Do collision detection and update back the compute_state instaces
-        let times_collision_detection = 100;
-        self.compute_node.set_time_step(&self.app, dt.as_secs_f32() / times_collision_detection as f32);
-        
-        self.compute_node
-        .write_instances_buffer(&self.app, &self.compute_state.instances);
-        for _ in 0..times_collision_detection {
-            do_compute(&self.app, &self.compute_node);
-        }
-        let new_positions = self.compute_node.read_position_buffer(&self.app);
-        let new_velocities = self.compute_node.read_velocity_buffer(&self.app);
-        for i in 0..self.compute_state.instances.len() {
-            self.compute_state.instances[i].position = new_positions[i];
-            self.compute_state.instances[i].velocity = new_velocities[i];
-        }
+        self.compute_state.update(&self.app, dt);
 
         // Update the instance buffer for rendering
         self.instance_state

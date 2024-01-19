@@ -321,7 +321,7 @@ impl CameraState {
     ///
     /// “new”函数返回定义它的结构的实例。
     pub fn new(app: &AppSurface) -> Self {
-        let camera = Camera::new((15.0, 5.0, 15.0), -90.0, -20.0);
+        let camera = Camera::new((0.0, 0.0, 15.0), -90.0, -20.0);
         let projection = Projection::new(app.config.width, app.config.height, 45.0, 0.1, 100.0);
         let camera_controller = CameraController::new(4.0, 0.4);
         let mut camera_uniform = CameraUniform::new();
